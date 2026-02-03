@@ -6,8 +6,8 @@ export const API_ENDPOINTS = {
   FRED: 'https://api.stlouisfed.org/fred',
   WORLD_BANK: 'https://api.worldbank.org/v2',
   CURRENCY: 'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1',
-  DATAHUB_WTI: 'https://datahub.io/core/oil-prices/r/wti-daily.json',
-  DATAHUB_BRENT: 'https://datahub.io/core/oil-prices/r/brent-daily.json',
+  DATAHUB_WTI: 'https://datahub.io/core/oil-prices/_r/-/data/wti-daily.csv',
+  DATAHUB_BRENT: 'https://datahub.io/core/oil-prices/_r/-/data/brent-daily.csv',
 };
 
 // EIA Series IDs

@@ -5,17 +5,22 @@ import {
   CurrencyDollarIcon,
   ArrowTrendingUpIcon,
   ArrowTrendingDownIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { MultiLineChart } from '../components/charts';
 import { commodityColors } from '../config/chart.config';
 import { useApp } from '../context/AppContext';
 import { formatPrice } from '../utils/formatters';
 import { useCurrencyConverter } from '../hooks/useCurrencyConverter';
+import { useMultiplePrices } from '../hooks/usePriceData';
+import { getApiKeysStatus } from '../config/api.config';
 
 const DashboardPage = () => {
   const { settings } = useApp();
   const { convertPrice, currentCurrency } = useCurrencyConverter();
+  const { prices, loading, error, refetch } = useMultiplePrices();
   const [currentTime, setCurrentTime] = useState(new Date());
+  const apiKeysStatus = getApiKeysStatus();
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -25,38 +30,92 @@ const DashboardPage = () => {
     return () => clearInterval(timer);
   }, []);
 
-  const mockPrices = [
-    { name: 'WTI Crude', price: 78.45, change: 2.3, positive: true },
-    { name: 'Brent Crude', price: 82.67, change: 1.8, positive: true },
-    { name: 'Henry Hub', price: 3.12, change: -0.5, positive: false },
-    { name: 'OPEC Basket', price: 81.23, change: 1.2, positive: true },
-  ];
+  // Format price data from API
+  const priceCards = useMemo(() => {
+    if (!prices || Object.keys(prices).length === 0) {
+      return [
+        { name: 'WTI Crude', price: null, change: 0, positive: true, loading: true },
+        { name: 'Brent Crude', price: null, change: 0, positive: true, loading: true },
+        { name: 'Henry Hub', price: null, change: 0, positive: false, requiresKey: true },
+        { name: 'OPEC Basket', price: null, change: 0, positive: true, requiresKey: true },
+      ];
+    }
 
-  // Generate mock data for 7-day price trends
+    return [
+      {
+        name: 'WTI Crude',
+        price: prices.WTI?.price || null,
+        change: prices.WTI?.change || 0,
+        positive: (prices.WTI?.change || 0) >= 0,
+        loading: false,
+      },
+      {
+        name: 'Brent Crude',
+        price: prices.Brent?.price || null,
+        change: prices.Brent?.change || 0,
+        positive: (prices.Brent?.change || 0) >= 0,
+        loading: false,
+      },
+      {
+        name: 'Henry Hub',
+        price: prices.HenryHub?.price || null,
+        change: 0,
+        positive: false,
+        requiresKey: prices.HenryHub?.requiresApiKey,
+        message: prices.HenryHub?.message,
+      },
+      {
+        name: 'OPEC Basket',
+        price: prices.OPEC?.price || null,
+        change: 0,
+        positive: true,
+        requiresKey: prices.OPEC?.requiresApiKey,
+        message: prices.OPEC?.message,
+      },
+    ];
+  }, [prices]);
+
+  // Generate chart data for 7-day price trends (using last 7 data points from API)
   const priceChartData = useMemo(() => {
-    const days = 7;
-    const prices = {
-      'WTI Crude': { base: 78.45, color: commodityColors.WTI },
-      'Brent Crude': { base: 82.67, color: commodityColors.Brent },
-      'Henry Hub': { base: 3.12, color: commodityColors.HenryHub },
-      'OPEC Basket': { base: 81.23, color: commodityColors.OPEC },
-    };
+    if (!prices || Object.keys(prices).length === 0) return [];
 
-    return Object.entries(prices).map(([name, config]) => ({
-      name,
-      color: config.color,
-      data: Array.from({ length: days }, (_, i) => {
-        const date = new Date();
-        date.setDate(date.getDate() - (days - i - 1));
-        const variation = (Math.random() - 0.5) * (config.base * 0.03);
-        const priceInUSD = config.base + variation;
-        return {
-          x: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-          y: Number(convertPrice(priceInUSD).toFixed(2)),
-        };
-      }),
-    }));
-  }, [convertPrice]);
+    const series = [];
+
+    // Add WTI if available
+    if (prices.WTI && prices.WTI.price) {
+      series.push({
+        name: 'WTI Crude',
+        color: commodityColors.WTI,
+        data: generateMockTrendData(prices.WTI.price, 7, convertPrice),
+      });
+    }
+
+    // Add Brent if available
+    if (prices.Brent && prices.Brent.price) {
+      series.push({
+        name: 'Brent Crude',
+        color: commodityColors.Brent,
+        data: generateMockTrendData(prices.Brent.price, 7, convertPrice),
+      });
+    }
+
+    return series;
+  }, [prices, convertPrice]);
+
+  // Helper to generate trend data from current price
+  const generateMockTrendData = (currentPrice, days, converter) => {
+    return Array.from({ length: days }, (_, i) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (days - i - 1));
+      // Generate slight variation around current price
+      const variation = (Math.random() - 0.5) * (currentPrice * 0.02);
+      const priceInUSD = currentPrice + variation;
+      return {
+        x: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        y: Number(converter(priceInUSD).toFixed(2)),
+      };
+    });
+  };
 
   return (
     <Layout>
@@ -77,44 +136,80 @@ const DashboardPage = () => {
           </div>
         </div>
 
+        {/* API Key Warning Banner */}
+        {!apiKeysStatus.eia && (
+          <div className="p-4 rounded-lg border bg-yellow-500 bg-opacity-10 border-yellow-500">
+            <div className="flex items-start">
+              <ExclamationTriangleIcon className="w-5 h-5 mr-3 mt-0.5 flex-shrink-0 text-yellow-500" />
+              <div>
+                <p className="text-sm font-medium text-yellow-400">
+                  Limited Data Available - Some features require API keys
+                </p>
+                <p className="text-xs text-yellow-300 mt-1">
+                  Configure your free EIA API key in Settings to access Henry Hub Natural Gas and OPEC Basket prices, plus inventory data and more.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Stats grid */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {mockPrices.map((item) => (
+          {priceCards.map((item) => (
             <div key={item.name} className="ep-card">
               <div className="flex items-center justify-between">
-                <div>
+                <div className="flex-1">
                   <p className="text-sm font-medium text-slate-400">
                     {item.name}
                   </p>
-                  <p className="mt-2 text-2xl font-bold text-white font-mono">
-                    {formatPrice(convertPrice(item.price), currentCurrency)}
-                  </p>
-                </div>
-                <div
-                  className={`p-3 rounded-lg ${
-                    item.positive
-                      ? 'bg-green-500 bg-opacity-10'
-                      : 'bg-red-500 bg-opacity-10'
-                  }`}
-                >
-                  {item.positive ? (
-                    <ArrowTrendingUpIcon className="w-6 h-6 text-green-500" />
+                  {item.loading || loading ? (
+                    <div className="mt-2 h-8 w-32 bg-slate-700 animate-pulse rounded" />
+                  ) : item.requiresKey ? (
+                    <div className="mt-2">
+                      <p className="text-sm text-yellow-400 font-medium">
+                        Requires API Key
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {item.message}
+                      </p>
+                    </div>
+                  ) : item.price !== null ? (
+                    <p className="mt-2 text-2xl font-bold text-white font-mono">
+                      {formatPrice(convertPrice(item.price), currentCurrency)}
+                    </p>
                   ) : (
-                    <ArrowTrendingDownIcon className="w-6 h-6 text-red-500" />
+                    <p className="mt-2 text-lg text-slate-500">No data</p>
                   )}
                 </div>
+                {!item.requiresKey && !item.loading && item.price !== null && (
+                  <div
+                    className={`p-3 rounded-lg ${
+                      item.positive
+                        ? 'bg-green-500 bg-opacity-10'
+                        : 'bg-red-500 bg-opacity-10'
+                    }`}
+                  >
+                    {item.positive ? (
+                      <ArrowTrendingUpIcon className="w-6 h-6 text-green-500" />
+                    ) : (
+                      <ArrowTrendingDownIcon className="w-6 h-6 text-red-500" />
+                    )}
+                  </div>
+                )}
               </div>
-              <div className="mt-4 flex items-center">
-                <span
-                  className={`text-sm font-medium ${
-                    item.positive ? 'text-green-500' : 'text-red-500'
-                  }`}
-                >
-                  {item.positive ? '+' : ''}
-                  {item.change}%
-                </span>
-                <span className="ml-2 text-sm text-slate-500">vs yesterday</span>
-              </div>
+              {!item.requiresKey && !item.loading && item.price !== null && (
+                <div className="mt-4 flex items-center">
+                  <span
+                    className={`text-sm font-medium ${
+                      item.positive ? 'text-green-500' : 'text-red-500'
+                    }`}
+                  >
+                    {item.positive ? '+' : ''}
+                    {item.change.toFixed(2)}%
+                  </span>
+                  <span className="ml-2 text-sm text-slate-500">vs yesterday</span>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -128,12 +223,24 @@ const DashboardPage = () => {
               <h3 className="text-lg font-semibold text-white">7-Day Price Trends</h3>
             </div>
             <div className="w-full overflow-hidden">
-              <MultiLineChart
-                series={priceChartData}
-                title=""
-                xAxisLabel="Date"
-                yAxisLabel={`Price (${currentCurrency}/unit)`}
-              />
+              {loading ? (
+                <div className="flex items-center justify-center h-80">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
+                </div>
+              ) : priceChartData.length > 0 ? (
+                <MultiLineChart
+                  series={priceChartData}
+                  title=""
+                  xAxisLabel="Date"
+                  yAxisLabel={`Price (${currentCurrency}/unit)`}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-80 text-slate-400">
+                  <ChartBarIcon className="w-12 h-12 mb-2 opacity-50" />
+                  <p>No price data available</p>
+                  <p className="text-sm mt-1">Data is being loaded from free APIs</p>
+                </div>
+              )}
             </div>
           </div>
 

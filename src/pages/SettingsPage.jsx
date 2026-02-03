@@ -355,7 +355,7 @@ const SettingsPage = () => {
           <h3 className="text-lg font-semibold text-white mb-4">About</h3>
           <div className="space-y-2 text-sm text-slate-300">
             <p>
-              <span className="text-slate-400">Version:</span> 1.0.0
+              <span className="text-slate-400">Version:</span> 1.1.0
             </p>
             <p>
               <span className="text-slate-400">Build:</span> Production
